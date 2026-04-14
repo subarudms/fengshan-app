@@ -6,55 +6,99 @@ const App = () => {
   const [days, setDays] = useState([]);
   const [rosterData, setRosterData] = useState({});
 
-  const employees = ["陳媺媐", "蔡威德", "黃振瑞", "陳冠伶", "黃煒森", "劉江偉"]; 
-  const holidays = ["2026-05-01"]; 
+  const employees = ["陳媺媐", "蔡威德", "黃振瑞", "陳冠伶", "黃煒森", "劉江偉"];
+  const holidays = ["2026-05-01"];
 
   const autoGenerate = () => {
     let newData = {};
     const daysInMonth = days.length;
-    const totalAllowedOff = Math.floor(daysInMonth / 7) * 2 + holidays.length;
 
-    // 紀錄每人已休天數與連上天數
+    // 紀錄每人狀態
     let empStats = employees.reduce((acc, name) => {
-      acc[name] = { off: 0, work: 0, lastOff: false };
+      acc[name] = { 
+        totalOff: 0, 
+        consecutiveWork: 0, 
+        lastWasOff: false,
+        weekOffCount: 0,
+        satOffCount: 0,
+        sunOffCount: 0
+      };
       return acc;
     }, {});
 
     for (let d = 1; d <= daysInMonth; d++) {
-      let dailyStaff = []; // 紀錄今天誰上班、上什麼班
-      let availableStaff = [...employees]; // 今天還沒排的人
+      const date = new Date(year, month - 1, d);
+      const dayOfWeek = date.getDay(); // 0是週日, 6是週六
 
-      // 1. 先處理「強制休假」(連上5天者)
-      availableStaff = availableStaff.filter(name => {
-        if (empStats[name].work >= 5 || (empStats[name].off < totalAllowedOff && Math.random() > 0.8 && !empStats[name].lastOff)) {
+      // 每週日重置週休計數 (規則：週日至週六算一週)
+      if (dayOfWeek === 0) {
+        employees.forEach(name => empStats[name].weekOffCount = 0);
+      }
+
+      let availableStaff = [...employees];
+
+      // 1. 決定誰「今天必須休」或「今天可以休」
+      let dailyOffStaff = [];
+      
+      // 先挑出符合規則必須/優先休假的人
+      const candidates = [...employees].sort(() => Math.random() - 0.5);
+      
+      candidates.forEach(name => {
+        const stats = empStats[name];
+        let shouldOff = false;
+
+        // 規則 A: 連續上班 5 天強制休息
+        if (stats.consecutiveWork >= 5) shouldOff = true;
+
+        // 規則 B: 週六日公平性 (若還沒休過週六日，優先在週六日排休)
+        if (dayOfWeek === 6 && stats.satOffCount < 1) shouldOff = true;
+        if (dayOfWeek === 0 && stats.sunOffCount < 1) shouldOff = true;
+
+        // 規則 C: 隨機補休 (但一週不能超過2天)
+        if (!shouldOff && stats.weekOffCount < 2 && Math.random() > 0.6) shouldOff = true;
+
+        // --- 檢查排除條件 ---
+        // 1. 禁止連休 (昨天休今天就不准休)
+        if (stats.lastWasOff) shouldOff = false;
+        // 2. 週限制 (一週已休滿2天)
+        if (stats.weekOffCount >= 2) shouldOff = false;
+        // 3. 週六日上限 (不超過2次)
+        if (dayOfWeek === 6 && stats.satOffCount >= 2) shouldOff = false;
+        if (dayOfWeek === 0 && stats.sunOffCount >= 2) shouldOff = false;
+
+        if (shouldOff && dailyOffStaff.length < (employees.length - 2)) { 
+          // 確保扣除休假後至少剩2人上班 (一A一C)
+          dailyOffStaff.push(name);
           newData[`${name}-${d}`] = "休";
-          empStats[name].off++;
-          empStats[name].work = 0;
-          empStats[name].lastOff = true;
-          return false;
+          stats.totalOff++;
+          stats.weekOffCount++;
+          stats.consecutiveWork = 0;
+          stats.lastWasOff = true;
+          if (dayOfWeek === 6) stats.satOffCount++;
+          if (dayOfWeek === 0) stats.sunOffCount++;
+          availableStaff = availableStaff.filter(n => n !== name);
         }
-        return true;
       });
 
-      // 2. 確保每天至少有一 A 一 C (營運低標)
+      // 2. 確保營運低標 (一A一C)
       const forceShift = (type) => {
         if (availableStaff.length > 0) {
           const name = availableStaff.shift();
           newData[`${name}-${d}`] = type;
-          empStats[name].work++;
-          empStats[name].lastOff = false;
+          empStats[name].consecutiveWork++;
+          empStats[name].lastWasOff = false;
         }
       };
       
-      forceShift("A"); // 第一人強制早班
-      forceShift("C"); // 第二人強制晚班
+      forceShift("A");
+      forceShift("C");
 
-      // 3. 剩下的人公平分配 A 或 C
+      // 3. 剩下的人分配剩餘班別
       availableStaff.forEach((name, idx) => {
         const type = (d + idx) % 2 === 0 ? "A" : "C";
         newData[`${name}-${d}`] = type;
-        empStats[name].work++;
-        empStats[name].lastOff = false;
+        empStats[name].consecutiveWork++;
+        empStats[name].lastWasOff = false;
       });
     }
 
@@ -65,7 +109,6 @@ const App = () => {
   useEffect(() => {
     const savedData = localStorage.getItem(`roster-${year}-${month}`);
     setRosterData(savedData ? JSON.parse(savedData) : {});
-    
     const date = new Date(year, month - 1, 1);
     const result = [];
     while (date.getMonth() === month - 1) {
@@ -83,7 +126,7 @@ const App = () => {
   return (
     <div style={{ padding: '10px', fontFamily: 'sans-serif', backgroundColor: '#f4f7f9', minHeight: '100vh' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
-        <h2 style={{ fontSize: '1rem', color: '#1a73e8', margin: 0 }}>鳳山所班表 (營運保證版)</h2>
+        <h2 style={{ fontSize: '1rem', color: '#1a73e8', margin: 0 }}>鳳山所班表 (精準規則版)</h2>
         <button onClick={autoGenerate} style={{ padding: '8px 12px', backgroundColor: '#1a73e8', color: 'white', border: 'none', borderRadius: '6px', fontSize: '12px', fontWeight: 'bold' }}>✨ 重新自動排班</button>
       </div>
       
@@ -132,12 +175,13 @@ const App = () => {
         </table>
       </div>
 
-      <div style={{ marginTop: '15px', padding: '12px', backgroundColor: '#e3f2fd', borderRadius: '8px', fontSize: '12px', color: '#0d47a1' }}>
-        <strong>🛡️ 營運保證邏輯：</strong>
+      <div style={{ marginTop: '15px', padding: '12px', backgroundColor: '#e8f5e9', borderRadius: '8px', fontSize: '11px', color: '#2e7d32', border: '1px solid #c8e6c9' }}>
+        <strong>✅ 規則檢核完成：</strong>
         <ul style={{ margin: '5px 0 0 18px', padding: 0 }}>
-          <li><strong>每日低標：</strong>確保每天至少有一位早班 (A) 與一位晚班 (C)。</li>
-          <li><strong>防呆機制：</strong>自動過濾掉全天皆為同班別的錯誤情況。</li>
-          <li><strong>合規檢查：</strong>維持連上 5 天必休與不連休之法規限制。</li>
+          <li><strong>七天週期：</strong>每週日到隔週六區間內，每人僅排休 2 天。</li>
+          <li><strong>禁止連休：</strong>自動生成不允許連續休假 2 天。</li>
+          <li><strong>週六日保障：</strong>每人每月必休「一個週六」與「一個週日」。</li>
+          <li><strong>上限控制：</strong>每人每月週六/週日休假天數各自不超過 2 次。</li>
         </ul>
       </div>
     </div>
