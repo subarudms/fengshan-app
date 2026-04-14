@@ -11,10 +11,15 @@ const App = () => {
   // --- 下拉選單設定：在此修改班別選項 ---
   const shiftOptions = [
     { label: "-", value: "" },
-    { label: "早", value: "早" },
-    { label: "晚", value: "晚" },
-    { label: "全", value: "全" },
-    { label: "休", value: "休" }
+    { label: "早1", value: "A" },
+    { label: "早2", value: "A2" },
+    { label: "早3", value: "A3" },
+    { label: "晚1", value: "C1" },
+    { label: "晚2", value: "C2"},
+    { label: "晚3", value: "C3"},
+    { label: "休", value: "休"},
+    { label: "全", value: "O"},
+    { label: "備", value: "備"},
   ];
 
   const holidays = ["2026-05-01"]; 
