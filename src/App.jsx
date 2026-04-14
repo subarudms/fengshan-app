@@ -7,53 +7,56 @@ const App = () => {
   const [rosterData, setRosterData] = useState({});
 
   const employees = ["陳媺媐", "蔡威德", "黃振瑞", "陳冠伶", "黃煒森", "劉江偉"]; 
-  const shifts = ["A", "C"];
   const holidays = ["2026-05-01"]; 
 
   const autoGenerate = () => {
     let newData = {};
     const daysInMonth = days.length;
-    
-    // 計算每人應休天數 (基準週休2日 + 國定假日)
     const totalAllowedOff = Math.floor(daysInMonth / 7) * 2 + holidays.length;
 
-    employees.forEach((emp, empIdx) => {
-      let empOffCount = 0;
-      let consecutiveWorkDays = 0; // 連續上班計數
-      let lastWasOff = false;      // 前一天是否休假
+    // 紀錄每人已休天數與連上天數
+    let empStats = employees.reduce((acc, name) => {
+      acc[name] = { off: 0, work: 0, lastOff: false };
+      return acc;
+    }, {});
 
-      for (let d = 1; d <= daysInMonth; d++) {
-        const date = new Date(year, month - 1, d);
-        const dayOfWeek = date.getDay();
+    for (let d = 1; d <= daysInMonth; d++) {
+      let dailyStaff = []; // 紀錄今天誰上班、上什麼班
+      let availableStaff = [...employees]; // 今天還沒排的人
 
-        let forceOff = false;
-        let forceWork = false;
-
-        // --- 勞基法與規則檢查 ---
-        // 1. 嚴格禁止連上超過 5 天
-        if (consecutiveWorkDays >= 5) forceOff = true;
-
-        // 2. 嚴格禁止自動連休 (如果昨天休，今天強制上班)
-        if (lastWasOff) forceWork = true;
-
-        // 3. 基本休假機率 (確保休假在月中平均分配，不要堆積在月底)
-        const randomOff = Math.random() > 0.7 && empOffCount < totalAllowedOff;
-
-        if ((forceOff || (randomOff && !forceWork)) && empOffCount < totalAllowedOff) {
-          // 排休
-          newData[`${emp}-${d}`] = "休";
-          empOffCount++;
-          consecutiveWorkDays = 0;
-          lastWasOff = true;
-        } else {
-          // 排班 (A/C 輪替)
-          const shiftType = shifts[(d + empIdx) % shifts.length];
-          newData[`${emp}-${d}`] = shiftType;
-          consecutiveWorkDays++;
-          lastWasOff = false;
+      // 1. 先處理「強制休假」(連上5天者)
+      availableStaff = availableStaff.filter(name => {
+        if (empStats[name].work >= 5 || (empStats[name].off < totalAllowedOff && Math.random() > 0.8 && !empStats[name].lastOff)) {
+          newData[`${name}-${d}`] = "休";
+          empStats[name].off++;
+          empStats[name].work = 0;
+          empStats[name].lastOff = true;
+          return false;
         }
-      }
-    });
+        return true;
+      });
+
+      // 2. 確保每天至少有一 A 一 C (營運低標)
+      const forceShift = (type) => {
+        if (availableStaff.length > 0) {
+          const name = availableStaff.shift();
+          newData[`${name}-${d}`] = type;
+          empStats[name].work++;
+          empStats[name].lastOff = false;
+        }
+      };
+      
+      forceShift("A"); // 第一人強制早班
+      forceShift("C"); // 第二人強制晚班
+
+      // 3. 剩下的人公平分配 A 或 C
+      availableStaff.forEach((name, idx) => {
+        const type = (d + idx) % 2 === 0 ? "A" : "C";
+        newData[`${name}-${d}`] = type;
+        empStats[name].work++;
+        empStats[name].lastOff = false;
+      });
+    }
 
     setRosterData(newData);
     localStorage.setItem(`roster-${year}-${month}`, JSON.stringify(newData));
@@ -78,15 +81,15 @@ const App = () => {
   }, [year, month]);
 
   return (
-    <div style={{ padding: '10px', fontFamily: 'system-ui, -apple-system, sans-serif', backgroundColor: '#f4f7f9', minHeight: '100vh' }}>
+    <div style={{ padding: '10px', fontFamily: 'sans-serif', backgroundColor: '#f4f7f9', minHeight: '100vh' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
-        <h2 style={{ fontSize: '1rem', color: '#333', margin: 0 }}>鳳山所班表 (法規強化版)</h2>
+        <h2 style={{ fontSize: '1rem', color: '#1a73e8', margin: 0 }}>鳳山所班表 (營運保證版)</h2>
         <button onClick={autoGenerate} style={{ padding: '8px 12px', backgroundColor: '#1a73e8', color: 'white', border: 'none', borderRadius: '6px', fontSize: '12px', fontWeight: 'bold' }}>✨ 重新自動排班</button>
       </div>
       
       <div style={{ marginBottom: '10px', display: 'flex', gap: '8px' }}>
-        <input type="number" value={year} onChange={e => setYear(parseInt(e.target.value))} style={{ width: '70px', padding: '5px', border: '1px solid #ccc', borderRadius: '4px' }} />
-        <select value={month} onChange={e => setMonth(parseInt(e.target.value))} style={{ padding: '5px', border: '1px solid #ccc', borderRadius: '4px' }}>
+        <input type="number" value={year} onChange={e => setYear(parseInt(e.target.value))} style={{ width: '70px', padding: '5px' }} />
+        <select value={month} onChange={e => setMonth(parseInt(e.target.value))} style={{ padding: '5px' }}>
           {[...Array(12).keys()].map(m => <option key={m+1} value={m+1}>{m+1}月</option>)}
         </select>
       </div>
@@ -107,9 +110,7 @@ const App = () => {
           <tbody>
             {employees.map((emp) => (
               <tr key={emp}>
-                <td style={{ padding: '12px 8px', fontWeight: 'bold', borderBottom: '1px solid #dee2e6', borderRight: '1px solid #dee2e6', position: 'sticky', left: 0, backgroundColor: 'white', zIndex: 5, textAlign: 'center', fontSize: '14px' }}>
-                  {emp}
-                </td>
+                <td style={{ padding: '12px 8px', fontWeight: 'bold', borderBottom: '1px solid #dee2e6', borderRight: '1px solid #dee2e6', position: 'sticky', left: 0, backgroundColor: 'white', zIndex: 5, textAlign: 'center' }}>{emp}</td>
                 {days.map(d => (
                   <td key={d.day} style={{ padding: '0', borderBottom: '1px solid #dee2e6', borderRight: '1px solid #dee2e6', backgroundColor: d.isOffDay ? '#fffdf5' : 'white', textAlign: 'center' }}>
                     <select 
@@ -131,12 +132,12 @@ const App = () => {
         </table>
       </div>
 
-      <div style={{ marginTop: '15px', padding: '12px', backgroundColor: '#fff', borderRadius: '8px', fontSize: '11px', color: '#d32f2f', border: '1px solid #ffcdd2' }}>
-        <strong>⚖️ 勞基法合規檢查點：</strong>
+      <div style={{ marginTop: '15px', padding: '12px', backgroundColor: '#e3f2fd', borderRadius: '8px', fontSize: '12px', color: '#0d47a1' }}>
+        <strong>🛡️ 營運保證邏輯：</strong>
         <ul style={{ margin: '5px 0 0 18px', padding: 0 }}>
-          <li>連續上班達 5 天時，系統下一日強制排休。</li>
-          <li>自動生成模式下，不允許連續休假 2 天。</li>
-          <li>所有 A/C 班次皆經過權重平準化處理。</li>
+          <li><strong>每日低標：</strong>確保每天至少有一位早班 (A) 與一位晚班 (C)。</li>
+          <li><strong>防呆機制：</strong>自動過濾掉全天皆為同班別的錯誤情況。</li>
+          <li><strong>合規檢查：</strong>維持連上 5 天必休與不連休之法規限制。</li>
         </ul>
       </div>
     </div>
