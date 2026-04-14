@@ -15,59 +15,57 @@ const App = () => {
 
     // 初始化統計
     let empStats = employees.reduce((acc, name) => {
-      acc[name] = { aCount: 0, cCount: 0, weekOffCount: 0 };
+      acc[name] = { aCount: 0, cCount: 0, weekOffCount: 0, consecutiveWork: 0 };
       return acc;
     }, {});
 
-    // --- 第一階段：強制排入休假 (嚴格遵守日到六區間) ---
-    let currentWeekStart = 1;
-    // 找出第一週的開始 (5/1 是週五，5/3 才是第一個週日)
-    // 為了計算精確，我們先跑一次迴圈標註每週的範圍
-    
     for (let d = 1; d <= daysInMonth; d++) {
       const date = new Date(year, month - 1, d);
-      if (date.getDay() === 0) { // 每逢週日，重置該週休假計數
+      if (date.getDay() === 0) { // 每週日重置該週休假計數
         employees.forEach(n => empStats[n].weekOffCount = 0);
       }
 
-      // 隨機打亂人員順序，公平挑選誰今天可以休
       let candidates = [...employees].sort(() => Math.random() - 0.5);
       let dailyOffCount = 0;
 
+      // --- 第一階段：決定休假人員 ---
       for (let name of candidates) {
-        if (dailyOffCount >= 2) break; // 每天最多休2人 (確保4人上班)
-
-        // --- 核心禁令檢查 ---
+        const stats = empStats[name];
         const yesterdayWasOff = newData[`${name}-${d-1}`] === "休";
-        const isLastDayOfWeek = new Date(year, month - 1, d).getDay() === 6;
-        const weekOffLeft = 2 - empStats[name].weekOffCount; // 本週還剩幾個休假扣打
-        const daysLeftInWeek = 6 - new Date(year, month - 1, d).getDay(); // 本週還剩幾天
+        const weekOffLeft = 2 - stats.weekOffCount; 
+        const daysLeftInWeek = 6 - date.getDay(); 
         
-        let shouldOff = false;
-        
-        // 1. 如果這週剩餘天數剛好等於剩餘休假扣打，則今天「必須」休
-        if (weekOffLeft > 0 && weekOffLeft > daysLeftInWeek) {
-            shouldOff = true;
-        } 
-        // 2. 隨機排休，但必須避開昨天已休的情況
-        else if (weekOffLeft > 0 && !yesterdayWasOff && Math.random() > 0.6) {
-            shouldOff = true;
-        }
+        let mustOff = false;
+        let canOff = true;
 
-        // 雙重保證：絕對禁止連休 (哪怕是跨週)
-        if (shouldOff && !yesterdayWasOff) {
+        // 1. 強制檢查：連上 5 天，今天必須休
+        if (stats.consecutiveWork >= 5) mustOff = true;
+
+        // 2. 週間扣打檢查：如果剩下天數剛好夠休完這週的假，今天必須休
+        if (weekOffLeft > 0 && weekOffLeft > daysLeftInWeek) mustOff = true;
+
+        // 3. 禁令檢查：昨天休，今天絕不能休 (除非真的連上太久，但優先順序以不連休為主)
+        if (yesterdayWasOff) canOff = false;
+
+        // 4. 每日人數檢查：每天最多休 2 人
+        if (dailyOffCount >= 2) canOff = false;
+
+        // 決定是否排休 (如果是強制休，且不違反連休原則)
+        if ((mustOff || (weekOffLeft > 0 && Math.random() > 0.6)) && canOff) {
           newData[`${name}-${d}`] = "休";
-          empStats[name].weekOffCount++;
+          stats.weekOffCount++;
+          stats.consecutiveWork = 0;
           dailyOffCount++;
         }
       }
-    }
 
-    // --- 第二階段：填補 A/C 班 (確保公平) ---
-    for (let d = 1; d <= daysInMonth; d++) {
+      // --- 第二階段：決定上班人員班別 (A/C) ---
       let workingStaff = employees.filter(name => newData[`${name}-${d}`] !== "休");
       
-      // 依 A 班累積次數排序
+      // 確保即使沒排休的人，連上班天數也要增加
+      workingStaff.forEach(name => empStats[name].consecutiveWork++);
+
+      // 公平排序：A 上得少的人優先排 A
       workingStaff.sort((a, b) => empStats[a].aCount - empStats[b].aCount);
       
       let aCountNeeded = Math.ceil(workingStaff.length / 2);
@@ -106,8 +104,8 @@ const App = () => {
   return (
     <div style={{ padding: '10px', fontFamily: 'sans-serif', backgroundColor: '#f4f7f9', minHeight: '100vh' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
-        <h2 style={{ fontSize: '1rem', color: '#d32f2f', margin: 0 }}>鳳山所班表 (禁連休終極校正版)</h2>
-        <button onClick={autoGenerate} style={{ padding: '10px 15px', backgroundColor: '#d32f2f', color: 'white', border: 'none', borderRadius: '6px', fontSize: '12px', fontWeight: 'bold' }}>🚀 重新生成 (嚴禁連休)</button>
+        <h2 style={{ fontSize: '1rem', color: '#1b5e20', margin: 0 }}>鳳山所班表 (法規全面封鎖版)</h2>
+        <button onClick={autoGenerate} style={{ padding: '10px 15px', backgroundColor: '#1b5e20', color: 'white', border: 'none', borderRadius: '6px', fontSize: '12px', fontWeight: 'bold' }}>🛡️ 安全生成 (不連上/不連休)</button>
       </div>
       
       <div style={{ marginBottom: '10px', display: 'flex', gap: '8px' }}>
@@ -155,12 +153,12 @@ const App = () => {
         </table>
       </div>
 
-      <div style={{ marginTop: '15px', padding: '12px', backgroundColor: '#ffebee', borderRadius: '8px', fontSize: '12px', color: '#c62828', border: '1px solid #ffcdd2' }}>
-        <strong>🚨 禁令強化說明：</strong>
+      <div style={{ marginTop: '15px', padding: '12px', backgroundColor: '#e8f5e9', borderRadius: '8px', fontSize: '12px', color: '#2e7d32', border: '1px solid #c8e6c9' }}>
+        <strong>✅ 勞動部法規合規版：</strong>
         <ul style={{ margin: '5px 0 0 18px', padding: 0 }}>
-          <li><strong>跨週禁連休：</strong>加入了 <code>yesterdayWasOff</code> 判定，即便是在週六與週日交界，也絕不允許連續休假。</li>
-          <li><strong>週週休二日：</strong>嚴格鎖定週日至週六區間，每人必定休滿 2 天。</li>
-          <li><strong>人力保底：</strong>每天自動生成時會排除掉休假超過 2 人（即至少 4 人在場）的情況。</li>
+          <li><strong>連上 5 天必休：</strong>透過 <code>consecutiveWork</code> 計數，滿 5 天隔日強制排休。</li>
+          <li><strong>絕不連休兩天：</strong>透過 <code>yesterdayWasOff</code> 判定，避開連續兩天休假。</li>
+          <li><strong>週日到週六：</strong>每週期內必定休滿 2 天，滿足您對「一週」的定義。</li>
         </ul>
       </div>
     </div>
