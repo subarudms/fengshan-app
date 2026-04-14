@@ -6,14 +6,14 @@ const App = () => {
   const [days, setDays] = useState([]);
 
   // --- 後台管理區：在此修改員工名單 ---
-  const employees = ["蔡威德", "陳媺媐", "劉江偉", "黃振瑞","黃煒森","陳冠伶"]; 
+  const employees = ["陳德珊", "陳媺媐", "蔡威德", "黃振瑞","陳冠伶","黃煒森","劉江偉"]; 
   
   // --- 下拉選單設定：在此修改班別選項 ---
   const shiftOptions = [
     { label: "-", value: "" },
-    { label: "A", value: "早" },
-    { label: "C", value: "晚" },
-    { label: "O", value: "全" },
+    { label: "早", value: "早" },
+    { label: "晚", value: "晚" },
+    { label: "全", value: "全" },
     { label: "休", value: "休" }
   ];
 
