@@ -1,41 +1,27 @@
 import React, { useState, useEffect } from 'react';
 
 const App = () => {
-  // --- 系統設定狀態 ---
   const [config, setConfig] = useState({
     startDate: "2026-04-26",
     weeks: 6,
     employees: "陳媺媐, 蔡威德, 黃振瑞, 陳冠伶, 黃煒森, 劉江偉",
-    shifts: "A, C",
-    offLabels: "例假, 休假" // 國定假日名稱會由系統自動帶入
+    shifts: "A, C"
   });
 
   const [rosterData, setRosterData] = useState({});
   const [dateHeaders, setDateHeaders] = useState([]);
 
-  // --- 2026 年度國定假日資料庫 (含正確名稱) ---
   const holidayMap = {
-    "2026-01-01": "元旦休",
-    "2026-02-16": "除夕休",
-    "2026-02-17": "初一休",
-    "2026-02-18": "初二休",
-    "2026-02-19": "初三休",
-    "2026-02-20": "初四休",
-    "2026-02-21": "初五休",
-    "2026-02-27": "228補休",
-    "2026-02-28": "228紀念日",
-    "2026-04-02": "清明連休",
-    "2026-04-03": "兒童節補休",
-    "2026-04-06": "清明補休",
-    "2026-05-01": "勞動節休",
-    "2026-06-19": "端午節休",
-    "2026-09-25": "中秋節休",
-    "2026-10-09": "國慶節休",
+    "2026-01-01": "元旦休", "2026-02-16": "除夕休", "2026-02-17": "初一休",
+    "2026-02-18": "初二休", "2026-02-19": "初三休", "2026-02-20": "初四休",
+    "2026-02-21": "初五休", "2026-02-27": "228補休", "2026-02-28": "228紀念日",
+    "2026-04-02": "清明連休", "2026-04-03": "兒童節補休", "2026-04-06": "清明補休",
+    "2026-05-01": "勞動節休", "2026-06-19": "端午節休", "2026-09-25": "中秋節休",
+    "2026-10-09": "國慶節休"
   };
 
   const empList = config.employees.split(',').map(s => s.trim()).filter(s => s);
   const shiftList = config.shifts.split(',').map(s => s.trim()).filter(s => s);
-  const offLabelList = config.offLabels.split(',').map(s => s.trim()).filter(s => s);
 
   useEffect(() => {
     const start = new Date(config.startDate);
@@ -59,65 +45,69 @@ const App = () => {
   const autoGenerate = () => {
     let newData = {};
     let empStats = empList.reduce((acc, name) => {
-      acc[name] = { aCount: 0, nationalUsed: [] };
+      acc[name] = { aCount: 0, cCount: 0, consecutiveWork: 0, weekOffCount: 0, monthNationalCount: 0 };
       return acc;
     }, {});
 
-    // 找出本區間內的所有國定假日日期與名稱
-    const holidaysInRange = dateHeaders.filter(d => {
-      const dStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-      return holidayMap[dStr];
-    }).map(d => {
-      const dStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-      return { date: d, name: holidayMap[dStr] };
-    });
+    for (let d = 1; d <= config.weeks * 7; d++) {
+      const currentDate = dateHeaders[d - 1];
+      if (!currentDate) continue;
+      const dayOfWeek = currentDate.getDay();
+      const dStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(currentDate.getDate()).padStart(2, '0')}`;
 
-    for (let w = 0; w < config.weeks; w++) {
-      const weekStartIdx = w * 7;
-      
+      // 週日重置週休計數
+      if (dayOfWeek === 0) {
+        empList.forEach(n => empStats[n].weekOffCount = 0);
+      }
+
       empList.forEach((name, empIdx) => {
-        let offInWeek = 0;
-        for (let i = 0; i < 7; i++) {
-          const currentDate = dateHeaders[weekStartIdx + i];
-          if (!currentDate) continue;
-          const dateKey = `${name}-${currentDate.getTime()}`;
-          const dayOfWeek = currentDate.getDay();
-          const template = [[1, 4], [2, 5], [3, 6], [0, 3], [1, 5], [2, 4]][(empIdx + w) % 6];
+        const stats = empStats[name];
+        const dateKey = `${name}-${currentDate.getTime()}`;
+        const yesterdayKey = `${name}-${currentDate.getTime() - 86400000}`;
+        const yesterdayWasOff = newData[yesterdayKey] && (newData[yesterdayKey].includes("休") || newData[yesterdayKey].includes("假"));
 
-          // 1. 基本 1例 1休
-          if (template.includes(dayOfWeek) && offInWeek < 2) {
-            const yesterdayKey = `${name}-${currentDate.getTime() - 86400000}`;
-            if (!newData[yesterdayKey]?.includes("休") && !newData[yesterdayKey]?.includes("假")) {
-              newData[dateKey] = offInWeek === 0 ? offLabelList[0] : offLabelList[1];
-              offInWeek++;
-            }
-          }
+        // 樣板邏輯：確保每週有休假
+        const template = [[1, 4], [2, 5], [3, 6], [0, 3], [1, 5], [2, 4]][(empIdx + Math.floor((d-1)/7)) % 6];
+        
+        let shouldOff = false;
+        let offLabel = "";
 
-          // 2. 自動安插本區間內的國定假日名稱
-          const currentNational = holidaysInRange.find(h => !empStats[name].nationalUsed.includes(h.name));
-          if (currentNational && !newData[dateKey] && Math.random() > 0.8) {
-            const yesterdayKey = `${name}-${currentDate.getTime() - 86400000}`;
-            if (newData[yesterdayKey] && !newData[yesterdayKey].includes("休") && !newData[yesterdayKey].includes("假")) {
-                newData[dateKey] = currentNational.name;
-                empStats[name].nationalUsed.push(currentNational.name);
-            }
+        // 1. 勞基法強制：連上五天必休
+        if (stats.consecutiveWork >= 5 && !yesterdayWasOff) {
+          shouldOff = true;
+        } 
+        // 2. 樣板預排休假
+        else if (template.includes(dayOfWeek) && stats.weekOffCount < 2 && !yesterdayWasOff) {
+          shouldOff = true;
+        }
+        // 3. 國定假日補休 (隨機安插在5月或其他月份)
+        else if (holidayMap[dStr] && stats.monthNationalCount < 1 && !yesterdayWasOff && Math.random() > 0.7) {
+          shouldOff = true;
+          offLabel = holidayMap[dStr];
+        }
+
+        if (shouldOff) {
+          if (!offLabel) {
+            // 精準名詞順序：週內第一個假叫例假，第二個叫休假
+            offLabel = stats.weekOffCount === 0 ? "例假" : "休假";
           }
+          newData[dateKey] = offLabel;
+          stats.weekOffCount++;
+          stats.consecutiveWork = 0;
+          if (offLabel.includes("節") || offLabel.includes("元旦")) stats.monthNationalCount++;
         }
       });
 
-      // 3. 填補 A/C
-      for (let i = 0; i < 7; i++) {
-        const currentDate = dateHeaders[weekStartIdx + i];
-        if (!currentDate) continue;
-        let workingStaff = empList.filter(name => !newData[`${name}-${currentDate.getTime()}`]);
-        workingStaff.sort((a, b) => (empStats[a].aCount || 0) - (empStats[b].aCount || 0));
-        let half = Math.ceil(workingStaff.length / 2);
-        workingStaff.forEach((name, idx) => {
-          const shift = idx < half ? shiftList[0] : shiftList[1];
-          newData[`${name}-${currentDate.getTime()}`] = shift;
-          if (shift === shiftList[0]) empStats[name].aCount++;
-        });
-      }
+      // 分配 A/C
+      let workingStaff = empList.filter(name => !newData[`${name}-${currentDate.getTime()}`]);
+      workingStaff.sort((a, b) => empStats[a].aCount - empStats[b].aCount);
+      let half = Math.ceil(workingStaff.length / 2);
+      workingStaff.forEach((name, idx) => {
+        const shift = idx < half ? "A" : "C";
+        newData[`${name}-${currentDate.getTime()}`] = shift;
+        empStats[name].consecutiveWork++;
+        if (shift === "A") empStats[name].aCount++;
+      });
     }
     setRosterData(newData);
     localStorage.setItem(`roster-master`, JSON.stringify(newData));
@@ -125,18 +115,13 @@ const App = () => {
 
   return (
     <div style={{ padding: '15px', fontFamily: 'sans-serif', backgroundColor: '#f1f5f9', minHeight: '100vh' }}>
-      <h2 style={{ color: '#1e293b', fontSize: '1.2rem', marginBottom: '15px' }}>📅 鳳山所智慧排班 (國定假日精準版)</h2>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+        <h2 style={{ color: '#1e293b', fontSize: '1.1rem' }}>鳳山所智慧排班 (例休順序校正版)</h2>
+        <button onClick={autoGenerate} style={{ padding: '10px 16px', backgroundColor: '#0f172a', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>重新計算生成</button>
+      </div>
       
-      <div style={{ backgroundColor: 'white', padding: '15px', borderRadius: '10px', boxShadow: '0 2px 4px rgba(0,0,0,0.05)', marginBottom: '15px', display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
-        <div style={{ flex: '1 1 150px' }}>
-          <label style={{ fontSize: '12px', fontWeight: 'bold' }}>起始日期</label>
-          <input type="date" value={config.startDate} onChange={e => setConfig({...config, startDate: e.target.value})} style={{ width: '100%', padding: '6px', marginTop: '4px' }} />
-        </div>
-        <div style={{ flex: '1 1 100px', display: 'flex', alignItems: 'flex-end' }}>
-          <button onClick={autoGenerate} style={{ width: '100%', padding: '8px', backgroundColor: '#334155', color: 'white', border: 'none', borderRadius: '5px', fontWeight: 'bold', cursor: 'pointer' }}>
-            重新生成
-          </button>
-        </div>
+      <div style={{ backgroundColor: 'white', padding: '15px', borderRadius: '12px', marginBottom: '15px', display: 'flex', gap: '10px' }}>
+        <input type="date" value={config.startDate} onChange={e => setConfig({...config, startDate: e.target.value})} style={{ padding: '8px', border: '1px solid #cbd5e1', borderRadius: '4px' }} />
       </div>
 
       <div style={{ backgroundColor: 'white', borderRadius: '12px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)', overflowX: 'auto' }}>
@@ -162,13 +147,10 @@ const App = () => {
                 <td style={{ border: '1px solid #e2e8f0', padding: '10px 8px', fontWeight: 'bold', position: 'sticky', left: 0, backgroundColor: 'white', zIndex: 10, textAlign: 'center' }}>{name}</td>
                 {dateHeaders.map(d => {
                   const val = rosterData[`${name}-${d.getTime()}`] || "-";
-                  const getStyle = (v) => {
-                    if (v === "例假") return { color: '#dc2626', fontWeight: 'bold' };
-                    if (v === "休假") return { color: '#2563eb', fontWeight: 'bold' };
-                    if (v.includes("休") && v !== "A" && v !== "C") return { color: '#059669', fontWeight: 'bold' };
-                    return { color: '#1e293b' };
+                  const s = {
+                    color: val === "例假" ? "#dc2626" : val === "休假" ? "#2563eb" : (val.includes("休") && val.length > 1) ? "#059669" : "#1e293b",
+                    fontWeight: (val.includes("假") || val.includes("休")) && val.length > 1 ? "bold" : "normal"
                   };
-                  const s = getStyle(val);
                   return (
                     <td key={d.getTime()} style={{ border: '1px solid #e2e8f0', padding: '0', textAlign: 'center' }}>
                       <select value={val} onChange={(e) => handleCellChange(name, d.getTime(), e.target.value)}
