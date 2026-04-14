@@ -28,8 +28,8 @@ const App = () => {
         const date = new Date(year, month - 1, d);
         const dayOfWeek = date.getDay(); // 0(日) 到 6(六)
 
-        // 每週一重置週休計數
-        if (dayOfWeek === 1) weeklyOff = 0;
+        // 每週六重置週休計數
+        if (dayOfWeek === 6) weeklyOff = 0;
 
         // 休假判定邏輯
         const isLastDays = (daysInMonth - d) < 3;
