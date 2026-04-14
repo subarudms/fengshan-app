@@ -1,123 +1,153 @@
 import React, { useState, useEffect } from 'react';
 
 const App = () => {
-  const [rosterData, setRosterData] = useState({});
-  const employees = ["陳媺媐", "蔡威德", "黃振瑞", "陳冠伶", "黃煒森", "劉江偉"];
+  // --- 系統設定狀態 ---
+  const [config, setConfig] = useState({
+    startDate: "2026-04-26",
+    weeks: 6,
+    employees: "陳媺媐, 蔡威德, 黃振瑞, 陳冠伶, 黃煒森, 劉江偉",
+    shifts: "A, C",
+    offLabels: "例假, 休假, 勞動節休"
+  });
 
-  // 區間：4/26 (日) 到 6/6 (六)
-  const startDate = new Date(2026, 3, 26);
-  const endDate = new Date(2026, 5, 6);
+  const [rosterData, setRosterData] = useState({});
+  const [dateHeaders, setDateHeaders] = useState([]);
+
+  // 解析設定字串為陣列
+  const empList = config.employees.split(',').map(s => s.trim()).filter(s => s);
+  const shiftList = config.shifts.split(',').map(s => s.trim()).filter(s => s);
+  const offLabelList = config.offLabels.split(',').map(s => s.trim()).filter(s => s);
+
+  // 初始化日期標頭
+  useEffect(() => {
+    const start = new Date(config.startDate);
+    const headers = [];
+    for (let i = 0; i < config.weeks * 7; i++) {
+      const d = new Date(start);
+      d.setDate(start.getDate() + i);
+      headers.push(d);
+    }
+    setDateHeaders(headers);
+  }, [config.startDate, config.weeks]);
 
   const autoGenerate = () => {
     let newData = {};
-    let empStats = employees.reduce((acc, name) => {
-      acc[name] = { aCount: 0, cCount: 0, hasNationalHoliday: false };
+    let empStats = empList.reduce((acc, name) => {
+      acc[name] = { aCount: 0, sundayOffCount: 0, hasNational: false };
       return acc;
     }, {});
 
-    // 建立 6 週的循環
-    for (let week = 0; week < 6; week++) {
-      let weekDays = [];
-      for (let i = 0; i < 7; i++) {
-        let d = new Date(startDate);
-        d.setDate(startDate.getDate() + (week * 7) + i);
-        weekDays.push(d);
-      }
+    // 依週循環處理
+    for (let w = 0; w < config.weeks; w++) {
+      const weekStartIdx = w * 7;
+      
+      empList.forEach((name, empIdx) => {
+        let offInWeek = 0;
+        
+        for (let i = 0; i < 7; i++) {
+          const currentDate = dateHeaders[weekStartIdx + i];
+          if (!currentDate) continue;
 
-      employees.forEach((name) => {
-        let offDaysInWeek = [];
-        // 為了確保不連休，我們使用交替位移
-        const weekDates = [...weekDays]; 
-
-        for (let dateObj of weekDates) {
-          const dateKey = `${name}-${dateObj.getFullYear()}-${dateObj.getMonth() + 1}-${dateObj.getDate()}`;
-          const yesterday = new Date(dateObj);
-          yesterday.setDate(dateObj.getDate() - 1);
-          const yesterdayKey = `${name}-${yesterday.getFullYear()}-${yesterday.getMonth() + 1}-${yesterday.getDate()}`;
-
-          // 連假檢查
-          const yesterdayWasOff = newData[yesterdayKey] && (newData[yesterdayKey].includes("假") || newData[yesterdayKey].includes("休"));
-
-          // 每週固定分配兩天假，且不與昨天重複
-          // 透過簡單的餘數偏移來確保每個人每週休假的日子會輪動，且不連休
-          const dayIdx = dateObj.getDay();
+          const dateKey = `${name}-${currentDate.getTime()}`;
+          const dayOfWeek = currentDate.getDay();
+          
+          // 樣板輪動邏輯 (確保不連休)
           const template = [
             [1, 4], [2, 5], [3, 6], [0, 3], [1, 5], [2, 4]
-          ][(employees.indexOf(name) + week) % 6];
+          ][(empIdx + w) % 6] || [1, 4];
 
-          if (template.includes(dayIdx) && !yesterdayWasOff) {
-            // --- 修正名詞順序邏輯 ---
-            // 本週第一個抓到的假叫「例假」，第二個叫「休假」
-            let label = offDaysInWeek.length === 0 ? "例假" : "休假";
-            newData[dateKey] = label;
-            offDaysInWeek.push(dateKey);
+          // 1. 排入 1例 1休
+          if (template.includes(dayOfWeek) && offInWeek < 2) {
+            const yesterday = new Date(currentDate);
+            yesterday.setDate(currentDate.getDate() - 1);
+            const yestKey = `${name}-${yesterday.getTime()}`;
+            
+            if (!newData[yestKey] || !newData[yestKey].includes("假") && !newData[yestKey].includes("休")) {
+              newData[dateKey] = offInWeek === 0 ? offLabelList[0] : offLabelList[1];
+              offInWeek++;
+            }
           }
 
-          // 處理勞動節 (僅限5月份，且每人僅限一次)
-          if (dateObj.getMonth() === 4 && !empStats[name].hasNationalHoliday && !newData[dateKey] && !yesterdayWasOff) {
-            // 隨機在5月挑一天非原定假日的日子補假
-            if (Math.random() > 0.85) {
-              newData[dateKey] = "勞動節休";
-              empStats[name].hasNationalHoliday = true;
+          // 2. 處理國定假日 (假設是 5 月份且設定中有第 3 個標籤)
+          if (currentDate.getMonth() === 4 && offLabelList[2] && !empStats[name].hasNational && !newData[dateKey]) {
+            if (Math.random() > 0.9) {
+               newData[dateKey] = offLabelList[2];
+               empStats[name].hasNational = true;
             }
           }
         }
       });
 
-      // 填補 A/C
-      weekDays.forEach(dateObj => {
-        const dKey = (name) => `${name}-${dateObj.getFullYear()}-${dateObj.getMonth() + 1}-${dateObj.getDate()}`;
-        let workingStaff = employees.filter(name => !newData[dKey(name)]);
+      // 3. 填補班別 (A/C)
+      for (let i = 0; i < 7; i++) {
+        const currentDate = dateHeaders[weekStartIdx + i];
+        if (!currentDate) continue;
+
+        let workingStaff = empList.filter(name => !newData[`${name}-${currentDate.getTime()}`]);
         workingStaff.sort((a, b) => empStats[a].aCount - empStats[b].aCount);
+        
         let half = Math.ceil(workingStaff.length / 2);
         workingStaff.forEach((name, idx) => {
-          const shift = idx < half ? "A" : "C";
-          newData[dKey(name)] = shift;
-          if (shift === "A") empStats[name].aCount++;
-          else empStats[name].cCount++;
+          const shift = idx < half ? shiftList[0] : shiftList[1];
+          newData[`${name}-${currentDate.getTime()}`] = shift;
+          if (shift === shiftList[0]) empStats[name].aCount++;
         });
-      });
+      }
     }
     setRosterData(newData);
   };
 
-  const renderTable = () => {
-    let dateHeaders = [];
-    let current = new Date(startDate);
-    while (current <= endDate) {
-      dateHeaders.push(new Date(current));
-      current.setDate(current.getDate() + 1);
-    }
+  return (
+    <div style={{ padding: '20px', fontFamily: 'sans-serif', backgroundColor: '#f8fafc', minHeight: '100vh' }}>
+      <h2 style={{ color: '#1e293b', marginBottom: '20px' }}>🏥 鳳山所智慧排班管理系統</h2>
+      
+      {/* 管理控制台 */}
+      <div style={{ backgroundColor: 'white', padding: '20px', borderRadius: '12px', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)', marginBottom: '20px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '15px' }}>
+        <div>
+          <label style={{ display: 'block', fontSize: '13px', fontWeight: 'bold', marginBottom: '5px' }}>起始日期</label>
+          <input type="date" value={config.startDate} onChange={e => setConfig({...config, startDate: e.target.value})} style={{ width: '90%', padding: '8px', borderRadius: '4px', border: '1px solid #cbd5e1' }} />
+        </div>
+        <div>
+          <label style={{ display: 'block', fontSize: '13px', fontWeight: 'bold', marginBottom: '5px' }}>人員名單 (逗號隔開)</label>
+          <input type="text" value={config.employees} onChange={e => setConfig({...config, employees: e.target.value})} style={{ width: '90%', padding: '8px', borderRadius: '4px', border: '1px solid #cbd5e1' }} />
+        </div>
+        <div>
+          <label style={{ display: 'block', fontSize: '13px', fontWeight: 'bold', marginBottom: '5px' }}>班別名稱 (逗號隔開)</label>
+          <input type="text" value={config.shifts} onChange={e => setConfig({...config, shifts: e.target.value})} style={{ width: '90%', padding: '8px', borderRadius: '4px', border: '1px solid #cbd5e1' }} />
+        </div>
+        <div style={{ display: 'flex', alignItems: 'flex-end' }}>
+          <button onClick={autoGenerate} style={{ width: '100%', padding: '10px', backgroundColor: '#2563eb', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>🚀 重新計算並生成班表</button>
+        </div>
+      </div>
 
-    return (
-      <div style={{ overflowX: 'auto', backgroundColor: 'white', borderRadius: '8px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
+      {/* 班表顯示區 */}
+      <div style={{ backgroundColor: 'white', padding: '15px', borderRadius: '12px', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)', overflowX: 'auto' }}>
         <table style={{ borderCollapse: 'collapse', width: 'max-content', fontSize: '12px' }}>
           <thead>
-            <tr style={{ backgroundColor: '#f8f9fa' }}>
-              <th style={{ border: '1px solid #dee2e6', padding: '12px 8px', position: 'sticky', left: 0, backgroundColor: '#f8f9fa', zIndex: 10, minWidth: '70px' }}>姓名</th>
+            <tr>
+              <th style={{ border: '1px solid #e2e8f0', padding: '12px', backgroundColor: '#f1f5f9', position: 'sticky', left: 0, zIndex: 20 }}>姓名</th>
               {dateHeaders.map(d => (
-                <th key={d.getTime()} style={{ border: '1px solid #dee2e6', padding: '6px', minWidth: '45px', backgroundColor: (d.getDay() === 0 || d.getDay() === 6) ? '#fff2cc' : 'white' }}>
-                  <div style={{ fontSize: '13px' }}>{d.getMonth() + 1}/{d.getDate()}</div>
-                  <div style={{ fontSize: '10px', color: '#666' }}>({["日","一","二","三","四","五","六"][d.getDay()]})</div>
+                <th key={d.getTime()} style={{ border: '1px solid #e2e8f0', padding: '8px', minWidth: '50px', backgroundColor: (d.getDay() === 0 || d.getDay() === 6) ? '#fef3c7' : 'white' }}>
+                  <div style={{ fontWeight: 'bold' }}>{d.getMonth()+1}/{d.getDate()}</div>
+                  <div style={{ fontSize: '10px', color: '#64748b' }}>{['日','一','二','三','四','五','六'][d.getDay()]}</div>
                 </th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {employees.map(name => (
+            {empList.map(name => (
               <tr key={name}>
-                <td style={{ border: '1px solid #dee2e6', padding: '10px 8px', fontWeight: 'bold', position: 'sticky', left: 0, backgroundColor: 'white', zIndex: 5, textAlign: 'center' }}>{name}</td>
+                <td style={{ border: '1px solid #e2e8f0', padding: '10px', fontWeight: 'bold', position: 'sticky', left: 0, backgroundColor: 'white', zIndex: 10, textAlign: 'center' }}>{name}</td>
                 {dateHeaders.map(d => {
-                  const val = rosterData[`${name}-${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`] || "-";
+                  const val = rosterData[`${name}-${d.getTime()}`] || "-";
                   const isOff = val.includes("假") || val.includes("休");
                   return (
                     <td key={d.getTime()} style={{ 
-                      border: '1px solid #dee2e6', 
+                      border: '1px solid #e2e8f0', 
                       textAlign: 'center', 
-                      color: val === "例假" ? "#d32f2f" : val === "休假" ? "#1976d2" : val === "勞動節休" ? "#388e3c" : "#333", 
-                      fontWeight: isOff ? 'bold' : 'normal',
                       padding: '8px 4px',
-                      backgroundColor: isOff ? '#fdfefe' : 'white'
+                      fontWeight: isOff ? 'bold' : 'normal',
+                      color: val === offLabelList[0] ? '#ef4444' : val === offLabelList[1] ? '#3b82f6' : val === offLabelList[2] ? '#10b981' : '#1e293b'
                     }}>
                       {val}
                     </td>
@@ -127,22 +157,6 @@ const App = () => {
             ))}
           </tbody>
         </table>
-      </div>
-    );
-  };
-
-  return (
-    <div style={{ padding: '10px', fontFamily: 'sans-serif', backgroundColor: '#f4f7f9', minHeight: '100vh' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
-        <h2 style={{ fontSize: '1.1rem', color: '#333', margin: 0 }}>鳳山所六週班表 (名詞校正版)</h2>
-        <button onClick={autoGenerate} style={{ padding: '10px 16px', backgroundColor: '#2c3e50', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>⚖️ 執行精準排班</button>
-      </div>
-      {renderTable()}
-      <div style={{ marginTop: '15px', padding: '12px', backgroundColor: '#fff', borderRadius: '8px', border: '1px solid #e0e0e0', fontSize: '11px', color: '#666', lineHeight: '1.6' }}>
-        <strong>📋 排班邏輯修正：</strong><br/>
-        1. <strong>名詞順序：</strong>每週日到六區間，第一天假固定為「例假」(紅)，第二天假固定為「休假」(藍)。<br/>
-        2. <strong>勞動節：</strong>5/1 假額已彈性分配於 5 月份中，標記為「勞動節休」(綠)。<br/>
-        3. <strong>禁連假：</strong>嚴格執行跨日偵測，確保任何形式的假日都不會連續出現。
       </div>
     </div>
   );
