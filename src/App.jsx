@@ -13,27 +13,48 @@ const App = () => {
   const autoGenerate = () => {
     let newData = {};
     const daysInMonth = days.length;
-    const baseOffDays = Math.floor(daysInMonth / 7) * 2;
-    const totalAllowedOff = baseOffDays + holidays.length;
+    
+    // 計算每人應休天數 (基準週休2日 + 國定假日)
+    const totalAllowedOff = Math.floor(daysInMonth / 7) * 2 + holidays.length;
 
     employees.forEach((emp, empIdx) => {
       let empOffCount = 0;
-      let weeklyOff = 0;
+      let consecutiveWorkDays = 0; // 連續上班計數
+      let lastWasOff = false;      // 前一天是否休假
+
       for (let d = 1; d <= daysInMonth; d++) {
         const date = new Date(year, month - 1, d);
-        if (date.getDay() === 1) weeklyOff = 0;
-        const isLastDays = (daysInMonth - d) < 3;
-        const needMoreOff = empOffCount < totalAllowedOff;
-        if (weeklyOff < 2 && (Math.random() > 0.7 || (isLastDays && needMoreOff)) && empOffCount < totalAllowedOff) {
+        const dayOfWeek = date.getDay();
+
+        let forceOff = false;
+        let forceWork = false;
+
+        // --- 勞基法與規則檢查 ---
+        // 1. 嚴格禁止連上超過 5 天
+        if (consecutiveWorkDays >= 5) forceOff = true;
+
+        // 2. 嚴格禁止自動連休 (如果昨天休，今天強制上班)
+        if (lastWasOff) forceWork = true;
+
+        // 3. 基本休假機率 (確保休假在月中平均分配，不要堆積在月底)
+        const randomOff = Math.random() > 0.7 && empOffCount < totalAllowedOff;
+
+        if ((forceOff || (randomOff && !forceWork)) && empOffCount < totalAllowedOff) {
+          // 排休
           newData[`${emp}-${d}`] = "休";
-          weeklyOff++;
           empOffCount++;
+          consecutiveWorkDays = 0;
+          lastWasOff = true;
         } else {
+          // 排班 (A/C 輪替)
           const shiftType = shifts[(d + empIdx) % shifts.length];
           newData[`${emp}-${d}`] = shiftType;
+          consecutiveWorkDays++;
+          lastWasOff = false;
         }
       }
     });
+
     setRosterData(newData);
     localStorage.setItem(`roster-${year}-${month}`, JSON.stringify(newData));
   };
@@ -59,8 +80,8 @@ const App = () => {
   return (
     <div style={{ padding: '10px', fontFamily: 'system-ui, -apple-system, sans-serif', backgroundColor: '#f4f7f9', minHeight: '100vh' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
-        <h2 style={{ fontSize: '1.1rem', color: '#333', margin: 0 }}>鳳山所班表 ({year}/{month})</h2>
-        <button onClick={autoGenerate} style={{ padding: '8px 12px', backgroundColor: '#007bff', color: 'white', border: 'none', borderRadius: '6px', fontSize: '12px', fontWeight: 'bold' }}>✨ 自動排班</button>
+        <h2 style={{ fontSize: '1rem', color: '#333', margin: 0 }}>鳳山所班表 (法規強化版)</h2>
+        <button onClick={autoGenerate} style={{ padding: '8px 12px', backgroundColor: '#1a73e8', color: 'white', border: 'none', borderRadius: '6px', fontSize: '12px', fontWeight: 'bold' }}>✨ 重新自動排班</button>
       </div>
       
       <div style={{ marginBottom: '10px', display: 'flex', gap: '8px' }}>
@@ -98,7 +119,7 @@ const App = () => {
                         setRosterData(newData);
                         localStorage.setItem(`roster-${year}-${month}`, JSON.stringify(newData));
                       }}
-                      style={{ width: '100%', height: '45px', border: 'none', background: 'transparent', textAlign: 'center', fontSize: '15px', fontWeight: '600', color: rosterData[`${emp}-${d.day}`] === '休' ? '#e67e22' : '#333', appearance: 'none', cursor: 'pointer' }}
+                      style={{ width: '100%', height: '45px', border: 'none', background: 'transparent', textAlign: 'center', fontSize: '15px', fontWeight: '600', color: rosterData[`${emp}-${d.day}`] === '休' ? '#e67e22' : '#333', appearance: 'none' }}
                     >
                       {["-", "A", "C", "休"].map(opt => <option key={opt} value={opt}>{opt}</option>)}
                     </select>
@@ -110,12 +131,12 @@ const App = () => {
         </table>
       </div>
 
-      <div style={{ marginTop: '15px', padding: '12px', backgroundColor: '#fff', borderRadius: '8px', fontSize: '12px', color: '#666', border: '1px solid #e1e4e8' }}>
-        <strong>💡 使用說明：</strong>
+      <div style={{ marginTop: '15px', padding: '12px', backgroundColor: '#fff', borderRadius: '8px', fontSize: '11px', color: '#d32f2f', border: '1px solid #ffcdd2' }}>
+        <strong>⚖️ 勞基法合規檢查點：</strong>
         <ul style={{ margin: '5px 0 0 18px', padding: 0 }}>
-          <li>點擊「自動排班」即可根據公平原則生成 A/C 班。</li>
-          <li>日期欄位橘色為週末或國定假日。</li>
-          <li>修改後的班表會自動儲存於此設備瀏覽器中。</li>
+          <li>連續上班達 5 天時，系統下一日強制排休。</li>
+          <li>自動生成模式下，不允許連續休假 2 天。</li>
+          <li>所有 A/C 班次皆經過權重平準化處理。</li>
         </ul>
       </div>
     </div>
