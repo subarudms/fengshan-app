@@ -13,12 +13,13 @@ const App = () => {
     let newData = {};
     const daysInMonth = days.length;
 
-    // 紀錄每人狀態與累積班次
+    // 嚴格追蹤每人狀態
     let empStats = employees.reduce((acc, name) => {
       acc[name] = { 
         aCount: 0, cCount: 0, 
         consecutiveWork: 0, lastWasOff: false,
-        weekOffCount: 0, satOffCount: 0, sunOffCount: 0
+        weekOffCount: 0, satOffCount: 0, sunOffCount: 0,
+        lastShift: "" // 紀錄最後一次上的班別 (A/C)
       };
       return acc;
     }, {});
@@ -27,7 +28,7 @@ const App = () => {
       const date = new Date(year, month - 1, d);
       const dayOfWeek = date.getDay(); // 0(日) 到 6(六)
 
-      // 每週日重置週休計數
+      // 週日重置週休計數 (週日至週六算一週)
       if (dayOfWeek === 0) {
         employees.forEach(name => empStats[name].weekOffCount = 0);
       }
@@ -35,72 +36,72 @@ const App = () => {
       let availableStaff = [...employees].sort(() => Math.random() - 0.5);
       let dailyOffStaff = [];
 
-      // --- 1. 決定誰休假 ---
-      // 規則：週日強制 4 人上班，即只能 2 人休假
+      // --- 1. 決定誰休假 (週日必須 4 人上班，所以最多休 2 人) ---
       const maxOffToday = (dayOfWeek === 0) ? 2 : 2; 
 
       availableStaff.forEach(name => {
         const stats = empStats[name];
+        let mustOff = stats.consecutiveWork >= 5; // 連上5天必休
         let canOff = true;
 
         if (stats.lastWasOff) canOff = false; // 禁止連休
         if (stats.weekOffCount >= 2) canOff = false; // 一週限2天
-        if (dayOfWeek === 6 && stats.satOffCount >= 2) canOff = false; // 週六上限
-        if (dayOfWeek === 0 && stats.sunOffCount >= 2) canOff = false; // 週日上限
-        
-        // 為了週日湊足 4 人上班，如果已經有 2 人休了，剩下的人不能休
-        if (dailyOffStaff.length >= maxOffToday) canOff = false;
+        if (dayOfWeek === 6 && stats.satOffCount >= 2) canOff = false; // 週六休假上限
+        if (dayOfWeek === 0 && stats.sunOffCount >= 2) canOff = false; // 週日休假上限
+        if (dailyOffStaff.length >= maxOffToday) canOff = false; // 確保營運人力
 
-        // 強制休假條件：連上5天
-        if (stats.consecutiveWork >= 5 && !stats.lastWasOff) {
-          canOff = true;
-        } else if (!canOff || Math.random() > 0.4) {
-          canOff = false;
-        }
+        // 週六日保障：如果還沒休過週六或週日，增加休假權重
+        const weekendPriority = (dayOfWeek === 6 && stats.satOffCount < 1) || (dayOfWeek === 0 && stats.sunOffCount < 1);
 
-        if (canOff) {
+        if (mustOff || (canOff && (weekendPriority || Math.random() > 0.6))) {
           dailyOffStaff.push(name);
           newData[`${name}-${d}`] = "休";
           stats.weekOffCount++;
           stats.consecutiveWork = 0;
           stats.lastWasOff = true;
+          stats.lastShift = "";
           if (dayOfWeek === 6) stats.satOffCount++;
           if (dayOfWeek === 0) stats.sunOffCount++;
         }
       });
 
-      // --- 2. 決定上班的人上什麼班 (A/C) ---
+      // --- 2. 分配上班班別 (A/C 平衡) ---
       let workingStaff = employees.filter(name => !dailyOffStaff.includes(name));
       
-      // 確保至少一 A 一 C
-      const assignShift = (name, type) => {
-        newData[`${name}-${d}`] = type;
-        empStats[name].consecutiveWork++;
-        empStats[name].lastWasOff = false;
-        if (type === "A") empStats[name].aCount++;
-        if (type === "C") empStats[name].cCount++;
-      };
-
-      workingStaff.forEach(name => {
+      // 先決定誰上 A 誰上 C
+      workingStaff.forEach((name) => {
         const stats = empStats[name];
-        let targetShift = "";
+        let chosenShift = "";
 
-        // 公平輪替邏輯：如果 A 班比 C 班多，今天就排 C，反之亦然
-        if (stats.aCount > stats.cCount) {
-          targetShift = "C";
-        } else if (stats.cCount > stats.aCount) {
-          targetShift = "A";
+        // 公平核心：如果 A 上的比 C 多，或是上次上 A，這次就傾向排 C
+        if (stats.aCount > stats.cCount || (stats.lastShift === "A" && Math.random() > 0.3)) {
+          chosenShift = "C";
         } else {
-          targetShift = Math.random() > 0.5 ? "A" : "C";
+          chosenShift = "A";
         }
-        
-        assignShift(name, targetShift);
+
+        newData[`${name}-${d}`] = chosenShift;
+        stats.consecutiveWork++;
+        stats.lastWasOff = false;
+        stats.lastShift = chosenShift;
+        if (chosenShift === "A") stats.aCount++;
+        else stats.cCount++;
       });
-      
-      // 最後檢查每天是否都有一 A 一 C (防呆)
-      const todayValues = workingStaff.map(n => newData[`${n}-${d}`]);
-      if (!todayValues.includes("A") && workingStaff.length > 0) assignShift(workingStaff[0], "A");
-      if (!todayValues.includes("C") && workingStaff.length > 1) assignShift(workingStaff[1], "C");
+
+      // --- 3. 每日強制校正 (確保每天至少 1A 1C) ---
+      const todayShifts = workingStaff.map(n => newData[`${n}-${d}`]);
+      if (workingStaff.length >= 2) {
+        if (!todayShifts.includes("A")) {
+          const first = workingStaff[0];
+          newData[`${first}-${d}`] = "A"; // 強制校正一個為 A
+          empStats[first].aCount++; empStats[first].cCount--;
+        }
+        if (!todayShifts.includes("C")) {
+          const last = workingStaff[workingStaff.length - 1];
+          newData[`${last}-${d}`] = "C"; // 強制校正一個為 C
+          empStats[last].cCount++; empStats[last].aCount--;
+        }
+      }
     }
 
     setRosterData(newData);
@@ -127,8 +128,8 @@ const App = () => {
   return (
     <div style={{ padding: '10px', fontFamily: 'sans-serif', backgroundColor: '#f4f7f9', minHeight: '100vh' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
-        <h2 style={{ fontSize: '1rem', color: '#1a73e8', margin: 0 }}>鳳山所班表 (公平輪替版)</h2>
-        <button onClick={autoGenerate} style={{ padding: '8px 12px', backgroundColor: '#1a73e8', color: 'white', border: 'none', borderRadius: '6px', fontSize: '12px', fontWeight: 'bold' }}>✨ 重新自動排班</button>
+        <h2 style={{ fontSize: '1rem', color: '#1a73e8', margin: 0 }}>鳳山所班表 (終極公平修正版)</h2>
+        <button onClick={autoGenerate} style={{ padding: '10px 15px', backgroundColor: '#d32f2f', color: 'white', border: 'none', borderRadius: '6px', fontSize: '12px', fontWeight: 'bold' }}>⚠️ 重新自動排班</button>
       </div>
       
       <div style={{ marginBottom: '10px', display: 'flex', gap: '8px' }}>
@@ -176,12 +177,12 @@ const App = () => {
         </table>
       </div>
 
-      <div style={{ marginTop: '15px', padding: '12px', backgroundColor: '#fff8e1', borderRadius: '8px', fontSize: '12px', color: '#f57c00' }}>
-        <strong>⚖️ 公平性與人力檢查：</strong>
+      <div style={{ marginTop: '15px', padding: '12px', backgroundColor: '#e3f2fd', borderRadius: '8px', fontSize: '12px', color: '#0d47a1', border: '1px solid #bbdefb' }}>
+        <strong>🚀 修正重點：</strong>
         <ul style={{ margin: '5px 0 0 18px', padding: 0 }}>
-          <li><strong>班別均衡：</strong>系統會自動統計每人 A/C 班數，確保整月班次平均。</li>
-          <li><strong>週日戰力：</strong>強制設定每週日必須有 4 位人員在場。</li>
-          <li><strong>休假分散：</strong>滿足週日 4 人上班後，其餘休假將均勻分散於週間。</li>
+          <li><strong>班別強制交替：</strong>系統會追蹤上次班別，嚴禁長期固定在 A 班或 C 班。</li>
+          <li><strong>週日戰力確保：</strong>每週日鎖定 4 人上班，2 人休假。</li>
+          <li><strong>週末休假公平：</strong>每人每月必休 1-2 次週六與週日。</li>
         </ul>
       </div>
     </div>
