@@ -8,7 +8,7 @@ const App = () => {
 
   // --- 後台管理區：人員清單 ---
   const employees = ["陳媺媐", "蔡威德", "黃振瑞", "陳冠伶", "黃煒森", "劉江偉"]; 
-  const shifts = ["A", "C", "O"]; // 可排班別：早、晚、全
+  const shifts = ["A", "C"]; // 已移除 O 班，只保留早班 A 與 晚班 C
   const holidays = ["2026-05-01"]; // 國定假日設定
 
   // --- 自動公平排班演算法 ---
@@ -16,7 +16,7 @@ const App = () => {
     let newData = {};
     const daysInMonth = days.length;
     
-    // 計算該月應有的總休假天數 (基準週休2日 + 國定假日)
+    // 計算該月應有的總休假天數 (週休2日 + 國定假日)
     const baseOffDays = Math.floor(daysInMonth / 7) * 2;
     const totalAllowedOff = baseOffDays + holidays.length;
 
@@ -31,10 +31,7 @@ const App = () => {
         // 每週一重置週休計數
         if (dayOfWeek === 1) weeklyOff = 0;
 
-        // 休假判定邏輯：
-        // 1. 每週不超過2天
-        // 2. 總休假天數不超過扣打
-        // 3. 隨機因子 (增加編排自然度)
+        // 休假判定邏輯
         const isLastDays = (daysInMonth - d) < 3;
         const needMoreOff = empOffCount < totalAllowedOff;
         
@@ -43,8 +40,7 @@ const App = () => {
           weeklyOff++;
           empOffCount++;
         } else {
-          // 公平輪替邏輯：
-          // 利用 (日期 + 員工索引) 的餘數來分配班別，確保 A/C/O 分布平均
+          // 公平輪替：只在 A 與 C 之間切換
           const shiftType = shifts[(d + empIdx) % shifts.length];
           newData[`${emp}-${d}`] = shiftType;
         }
@@ -121,7 +117,8 @@ const App = () => {
                       }}
                       style={{ border: 'none', background: 'transparent', fontWeight: 'bold', fontSize: '14px', width: '30px', textAlign: 'center', cursor: 'pointer' }}
                     >
-                      {["-", "A", "C", "O", "休"].map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                      {/* 下拉選單也同步移除 O 選項 */}
+                      {["-", "A", "C", "休"].map(opt => <option key={opt} value={opt}>{opt}</option>)}
                     </select>
                   </td>
                 ))}
@@ -132,12 +129,11 @@ const App = () => {
       </div>
 
       <div style={{ marginTop: '15px', padding: '12px', backgroundColor: '#fff', borderRadius: '8px', fontSize: '12px', color: '#666', border: '1px solid #e0e0e0' }}>
-        <strong>💡 排班規則說明：</strong>
+        <strong>💡 排班說明：</strong>
         <ul style={{ margin: '5px 0', paddingLeft: '20px' }}>
-          <li><strong>自動排班：</strong>系統會自動分配 A/C/O 班別，確保每人負擔公平。</li>
-          <li><strong>休假限制：</strong>符合週休二日原則（每週休假不超過 2 天）。</li>
-          <li><strong>國定假日：</strong>本月國定假日額度已計入總休假中，可彈性排休。</li>
-          <li><strong>手動微調：</strong>自動生成後，點擊格子即可手動更改班別。</li>
+          <li>已移除全天班 (O)，僅分配早班 (A) 與晚班 (C)。</li>
+          <li>自動生成會確保每人早晚班次數接近（公平原則）。</li>
+          <li>每週休假嚴格限制在 2 天以內（國定假日額度另計）。</li>
         </ul>
       </div>
     </div>
